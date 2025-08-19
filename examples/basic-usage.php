@@ -140,9 +140,9 @@ for ($i = 0; $i < 100; $i++) {
 }
 $compiledTime = (microtime(true) - $startTime) * 1000;
 
-echo "Regular FSM: {$regularTime:.2f}ms for 100 iterations\n";
-echo "Compiled FSM: {$compiledTime:.2f}ms for 100 iterations\n";
+echo "Regular FSM: {$regularTime}ms for 100 iterations\n";
+echo "Compiled FSM: {$compiledTime}ms for 100 iterations\n";
 $speedup = $regularTime / $compiledTime;
-echo "Speedup: {$speedup:.2f}x faster\n";
+echo "Speedup: {$speedup}x faster\n";
 
 echo "\nDone!\n";
