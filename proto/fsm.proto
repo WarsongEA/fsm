@@ -1,0 +1,184 @@
+syntax = "proto3";
+
+package fsm;
+
+option php_namespace = "FSM\\Grpc";
+option php_metadata_namespace = "FSM\\Grpc\\Meta";
+
+// Main FSM Service
+service FSMService {
+  // Create a new FSM definition
+  rpc CreateFSM(CreateFSMRequest) returns (CreateFSMResponse);
+  
+  // Execute input on an FSM (unary)
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+  
+  // Execute input on an FSM (streaming for real-time updates)
+  rpc ExecuteStream(stream ExecuteStreamRequest) returns (stream ExecuteStreamResponse);
+  
+  // Get current FSM state and history
+  rpc GetState(GetStateRequest) returns (GetStateResponse);
+  
+  // Modulo-three specific endpoint
+  rpc ModuloThree(ModuloThreeRequest) returns (ModuloThreeResponse);
+  
+  // List all FSM instances
+  rpc ListFSMs(ListFSMsRequest) returns (ListFSMsResponse);
+  
+  // Delete an FSM instance
+  rpc DeleteFSM(DeleteFSMRequest) returns (DeleteFSMResponse);
+  
+  // Validate FSM definition without creating
+  rpc ValidateFSM(ValidateFSMRequest) returns (ValidateFSMResponse);
+}
+
+// Core data structures
+
+message Transition {
+  string from_state = 1;
+  string input = 2;
+  string to_state = 3;
+}
+
+message TransitionRecord {
+  string from_state = 1;
+  string input = 2;
+  string to_state = 3;
+  double timestamp = 4;
+}
+
+message FSMDefinition {
+  repeated string states = 1;
+  repeated string alphabet = 2;
+  string initial_state = 3;
+  repeated string final_states = 4;
+  repeated Transition transitions = 5;
+}
+
+message FSMMetadata {
+  string fsm_id = 1;
+  string name = 2;
+  string description = 3;
+  double created_at = 4;
+  double last_used_at = 5;
+  int32 execution_count = 6;
+}
+
+// Request/Response messages
+
+message CreateFSMRequest {
+  FSMDefinition definition = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message CreateFSMResponse {
+  string fsm_id = 1;
+  bool success = 2;
+  string error_message = 3;
+  FSMMetadata metadata = 4;
+}
+
+message ExecuteRequest {
+  string fsm_id = 1;
+  string input_sequence = 2;
+  bool save_history = 3;  // Whether to persist execution history
+}
+
+message ExecuteResponse {
+  string final_state = 1;
+  repeated TransitionRecord transitions = 2;
+  double execution_time_ms = 3;
+  bool is_final_state = 4;
+  string error_message = 5;
+}
+
+message ExecuteStreamRequest {
+  string fsm_id = 1;
+  string input = 2;
+}
+
+message ExecuteStreamResponse {
+  string current_state = 1;
+  TransitionRecord last_transition = 2;
+  bool is_final_state = 3;
+  string error_message = 4;
+}
+
+message GetStateRequest {
+  string fsm_id = 1;
+  int32 history_limit = 2;  // Limit number of history records (0 = all)
+}
+
+message GetStateResponse {
+  string current_state = 1;
+  repeated TransitionRecord history = 2;
+  bool is_final_state = 3;
+  FSMMetadata metadata = 4;
+}
+
+message ModuloThreeRequest {
+  string binary_input = 1;
+  bool return_transitions = 2;  // Whether to return transition history
+}
+
+message ModuloThreeResponse {
+  int32 result = 1;           // The modulo 3 result (0, 1, or 2)
+  string final_state = 2;      // Final state name (S0, S1, or S2)
+  int64 decimal_value = 3;     // The decimal value of the binary input
+  repeated TransitionRecord transitions = 4;  // Optional transition history
+  double execution_time_ms = 5;
+}
+
+message ListFSMsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  string filter = 3;  // Optional filter expression
+}
+
+message ListFSMsResponse {
+  repeated FSMMetadata fsms = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;
+}
+
+message DeleteFSMRequest {
+  string fsm_id = 1;
+}
+
+message DeleteFSMResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+message ValidateFSMRequest {
+  FSMDefinition definition = 1;
+  string test_input = 2;  // Optional test input to validate
+}
+
+message ValidateFSMResponse {
+  bool is_valid = 1;
+  repeated string errors = 2;
+  repeated string warnings = 3;
+  string test_result = 4;  // Result of test input if provided
+}
+
+// Health check service (standard gRPC health protocol)
+service Health {
+  rpc Check(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc Watch(HealthCheckRequest) returns (stream HealthCheckResponse);
+}
+
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3;
+  }
+  ServingStatus status = 1;
+}
