@@ -1,31 +1,21 @@
 services:
-  php-fpm:
+  openswoole:
     build:
       context: ./../
       dockerfile: ./docker/php-fpm/Dockerfile
       args:
-        - PUID=${PUID}
-        - PGID=${PGID}
-        - INSTALL_XDEBUG=${INSTALL_XDEBUG}
+        - PUID=${PUID:-1000}
+        - PGID=${PGID:-1000}
     environment:
-      PHP_IDE_CONFIG: ${PHP_IDE_CONFIG}
-    volumes:
-      - ..:/var/www:rw
-    networks:
-      - network_bridge
-
-  nginx:
-    build:
-      context: ./nginx
+      PHP_IDE_CONFIG: ${PHP_IDE_CONFIG:-serverName=localhost}
     ports:
-      - ${NGINX_HOST_HTTP_PORT}:80
+      - "${APP_PORT:-9501}:9501"
     volumes:
       - ..:/var/www:rw
-    depends_on:
-      - php-fpm
     networks:
-      - network_bridge
+      - app_network
+    restart: unless-stopped
 
 networks:
-  network_bridge:
+  app_network:
     driver: bridge
