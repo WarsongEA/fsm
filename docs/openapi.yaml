@@ -1,0 +1,587 @@
+openapi: 3.0.3
+info:
+  title: FSM Library API
+  description: Production-ready Finite State Machine library with REST API
+  version: 1.0.0
+  contact:
+    name: FSM Library Team
+    email: support@fsmlibrary.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.fsmlibrary.com
+    description: Production server
+
+tags:
+  - name: FSM
+    description: Finite State Machine operations
+  - name: ModuloThree
+    description: Modulo-3 calculator operations
+  - name: Health
+    description: Health check endpoints
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Check if the service is healthy
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: fsm-rest-api
+
+  /api/fsm:
+    post:
+      tags:
+        - FSM
+      summary: Create FSM
+      description: Create a new Finite State Machine instance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFSMRequest'
+            examples:
+              modulo3:
+                summary: Modulo-3 FSM
+                value:
+                  states: ["S0", "S1", "S2"]
+                  alphabet: ["0", "1"]
+                  initial_state: "S0"
+                  final_states: ["S0", "S1", "S2"]
+                  transitions:
+                    "S0:0": "S0"
+                    "S0:1": "S1"
+                    "S1:0": "S2"
+                    "S1:1": "S0"
+                    "S2:0": "S1"
+                    "S2:1": "S2"
+                  name: "Modulo-3 FSM"
+                  description: "Calculates n mod 3 for binary input"
+      responses:
+        '200':
+          description: FSM created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateFSMResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/fsm/{id}/execute:
+    post:
+      tags:
+        - FSM
+      summary: Execute FSM
+      description: Execute input on a Finite State Machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: FSM identifier
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteFSMRequest'
+            examples:
+              simple:
+                summary: Simple execution
+                value:
+                  input: "110101"
+                  record_history: false
+      responses:
+        '200':
+          description: Execution completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteFSMResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/fsm/{id}/state:
+    get:
+      tags:
+        - FSM
+      summary: Get FSM state
+      description: Get the current state of a Finite State Machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: FSM identifier
+          schema:
+            type: string
+        - name: history_limit
+          in: query
+          required: false
+          description: Number of history entries to return
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+            maximum: 100
+      responses:
+        '200':
+          description: State retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetStateResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/fsm/{id}/batch:
+    post:
+      tags:
+        - FSM
+      summary: Batch execute
+      description: Execute multiple inputs on a Finite State Machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: FSM identifier
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchExecuteRequest'
+      responses:
+        '200':
+          description: Batch execution completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchExecuteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/modulo-three:
+    post:
+      tags:
+        - ModuloThree
+      summary: Calculate modulo-3
+      description: Calculate n mod 3 where n is given as a binary string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModuloThreeRequest'
+            examples:
+              simple:
+                summary: Calculate 6 mod 3
+                value:
+                  binary_input: "110"
+                  return_transitions: true
+      responses:
+        '200':
+          description: Calculation completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModuloThreeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/modulo-three/batch:
+    post:
+      tags:
+        - ModuloThree
+      summary: Batch modulo-3 calculation
+      description: Calculate modulo-3 for multiple binary inputs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModuloThreeBatchRequest'
+      responses:
+        '200':
+          description: Batch calculation completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModuloThreeBatchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  schemas:
+    CreateFSMRequest:
+      type: object
+      required:
+        - states
+        - alphabet
+        - initial_state
+        - final_states
+        - transitions
+      properties:
+        states:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          example: ["S0", "S1", "S2"]
+        alphabet:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          example: ["0", "1"]
+        initial_state:
+          type: string
+          example: "S0"
+        final_states:
+          type: array
+          items:
+            type: string
+          example: ["S0", "S1", "S2"]
+        transitions:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            "S0:0": "S0"
+            "S0:1": "S1"
+        name:
+          type: string
+          nullable: true
+          example: "Modulo-3 FSM"
+        description:
+          type: string
+          nullable: true
+          example: "Calculates n mod 3 for binary input"
+
+    CreateFSMResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            fsm_id:
+              type: string
+              example: "a1b2c3d4e5f6"
+            metadata:
+              $ref: '#/components/schemas/FSMMetadata'
+
+    ExecuteFSMRequest:
+      type: object
+      required:
+        - input
+      properties:
+        input:
+          type: string
+          example: "110101"
+        record_history:
+          type: boolean
+          default: false
+
+    ExecuteFSMResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            final_state:
+              type: string
+              example: "S1"
+            is_accepted:
+              type: boolean
+              example: true
+            transitions:
+              type: array
+              items:
+                $ref: '#/components/schemas/Transition'
+            execution_time_ms:
+              type: number
+              format: float
+              example: 0.123
+
+    GetStateResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            current_state:
+              type: string
+              example: "S0"
+            is_final_state:
+              type: boolean
+              example: true
+            history:
+              type: array
+              items:
+                $ref: '#/components/schemas/HistoryEntry'
+            metadata:
+              $ref: '#/components/schemas/FSMMetadata'
+
+    BatchExecuteRequest:
+      type: object
+      required:
+        - inputs
+      properties:
+        inputs:
+          type: array
+          items:
+            type: string
+          example: ["101", "110", "111"]
+
+    BatchExecuteResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            results:
+              type: array
+              items:
+                type: object
+                properties:
+                  input:
+                    type: string
+                  final_state:
+                    type: string
+                  is_accepted:
+                    type: boolean
+                  execution_time_ms:
+                    type: number
+                  error:
+                    type: string
+                    nullable: true
+            total_execution_time_ms:
+              type: number
+            inputs_processed:
+              type: integer
+
+    ModuloThreeRequest:
+      type: object
+      required:
+        - binary_input
+      properties:
+        binary_input:
+          type: string
+          pattern: '^[01]+$'
+          example: "110"
+        return_transitions:
+          type: boolean
+          default: false
+
+    ModuloThreeResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            binary_input:
+              type: string
+              example: "110"
+            decimal_value:
+              type: string
+              example: "6"
+            modulo_result:
+              type: integer
+              minimum: 0
+              maximum: 2
+              example: 0
+            final_state:
+              type: string
+              example: "S0"
+            transitions:
+              type: array
+              nullable: true
+              items:
+                $ref: '#/components/schemas/Transition'
+            execution_time_ms:
+              type: number
+              format: float
+
+    ModuloThreeBatchRequest:
+      type: object
+      required:
+        - inputs
+      properties:
+        inputs:
+          type: array
+          items:
+            type: string
+            pattern: '^[01]+$'
+          example: ["101", "110", "111"]
+
+    ModuloThreeBatchResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            results:
+              type: array
+              items:
+                type: object
+                properties:
+                  input:
+                    type: string
+                  decimal_value:
+                    type: string
+                  modulo_result:
+                    type: integer
+                  execution_time_ms:
+                    type: number
+                  error:
+                    type: string
+                    nullable: true
+            total_execution_time_ms:
+              type: number
+            inputs_processed:
+              type: integer
+
+    Transition:
+      type: object
+      properties:
+        from:
+          type: string
+          example: "S0"
+        input:
+          type: string
+          example: "1"
+        to:
+          type: string
+          example: "S1"
+
+    HistoryEntry:
+      type: object
+      properties:
+        from:
+          type: string
+        input:
+          type: string
+        to:
+          type: string
+        timestamp:
+          type: number
+
+    FSMMetadata:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        execution_count:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+            code:
+              type: integer
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: error
+            error:
+              message: "Invalid input format"
+              code: 400
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: error
+            error:
+              message: "FSM not found"
+              code: 404
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: error
+            error:
+              message: "Internal server error"
+              code: 500

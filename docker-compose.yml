@@ -1,0 +1,80 @@
+version: '3.9'
+
+services:
+  # REST API Service
+  fsm-rest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fsm-rest
+    command: ["php", "bin/rest-server.php"]
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_TYPE=rest
+      - REST_HOST=0.0.0.0
+      - REST_PORT=8080
+      - LOG_LEVEL=info
+    networks:
+      - fsm-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # gRPC Service (when implemented)
+  # fsm-grpc:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: fsm-grpc
+  #   command: ["php", "bin/grpc-server.php"]
+  #   ports:
+  #     - "9080:9080"
+  #   environment:
+  #     - SERVER_TYPE=grpc
+  #     - GRPC_HOST=0.0.0.0
+  #     - GRPC_PORT=9080
+  #     - LOG_LEVEL=info
+  #   networks:
+  #     - fsm-network
+  #   restart: unless-stopped
+
+  # API Documentation (Swagger UI)
+  swagger-ui:
+    image: swaggerapi/swagger-ui:latest
+    container_name: fsm-swagger
+    ports:
+      - "8081:8080"
+    environment:
+      - SWAGGER_JSON=/openapi/openapi.yaml
+      - BASE_URL=/docs
+    volumes:
+      - ./docs:/openapi:ro
+    networks:
+      - fsm-network
+    restart: unless-stopped
+
+  # Optional: Redis for persistence (if needed)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: fsm-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   networks:
+  #     - fsm-network
+  #   restart: unless-stopped
+
+networks:
+  fsm-network:
+    driver: bridge
+    name: fsm-network
+
+volumes:
+  redis-data:
+    driver: local
