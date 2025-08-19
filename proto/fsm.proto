@@ -2,18 +2,19 @@ syntax = "proto3";
 
 package fsm;
 
-option php_namespace = "FSM\\Grpc";
-option php_metadata_namespace = "FSM\\Grpc\\Meta";
+option php_namespace = "FSM\\Infrastructure\\Transport\\Grpc\\Generated";
+option php_metadata_namespace = "FSM\\Infrastructure\\Transport\\Grpc\\Meta";
 
 // Main FSM Service
 service FSMService {
-  // Create a new FSM definition
+  // Create a new FSM instance
   rpc CreateFSM(CreateFSMRequest) returns (CreateFSMResponse);
   
   // Execute input on an FSM (unary)
   rpc Execute(ExecuteRequest) returns (ExecuteResponse);
   
   // Execute input on an FSM (streaming for real-time updates)
+  // Client streams individual inputs or chunks, server streams state changes
   rpc ExecuteStream(stream ExecuteStreamRequest) returns (stream ExecuteStreamResponse);
   
   // Get current FSM state and history
@@ -21,6 +22,9 @@ service FSMService {
   
   // Modulo-three specific endpoint
   rpc ModuloThree(ModuloThreeRequest) returns (ModuloThreeResponse);
+  
+  // Batch processing - execute multiple inputs in parallel
+  rpc ExecuteBatch(ExecuteBatchRequest) returns (ExecuteBatchResponse);
   
   // List all FSM instances
   rpc ListFSMs(ListFSMsRequest) returns (ListFSMsResponse);
@@ -74,9 +78,7 @@ message CreateFSMRequest {
 
 message CreateFSMResponse {
   string fsm_id = 1;
-  bool success = 2;
-  string error_message = 3;
-  FSMMetadata metadata = 4;
+  FSMMetadata metadata = 2;
 }
 
 message ExecuteRequest {
@@ -90,19 +92,17 @@ message ExecuteResponse {
   repeated TransitionRecord transitions = 2;
   double execution_time_ms = 3;
   bool is_final_state = 4;
-  string error_message = 5;
 }
 
 message ExecuteStreamRequest {
   string fsm_id = 1;
-  string input = 2;
+  string input = 2;  // Single character or chunk of input to process
 }
 
 message ExecuteStreamResponse {
   string current_state = 1;
   TransitionRecord last_transition = 2;
   bool is_final_state = 3;
-  string error_message = 4;
 }
 
 message GetStateRequest {
@@ -125,7 +125,7 @@ message ModuloThreeRequest {
 message ModuloThreeResponse {
   int32 result = 1;           // The modulo 3 result (0, 1, or 2)
   string final_state = 2;      // Final state name (S0, S1, or S2)
-  int64 decimal_value = 3;     // The decimal value of the binary input
+  string decimal_value = 3;    // String representation to handle arbitrarily large numbers
   repeated TransitionRecord transitions = 4;  // Optional transition history
   double execution_time_ms = 5;
 }
@@ -147,8 +147,7 @@ message DeleteFSMRequest {
 }
 
 message DeleteFSMResponse {
-  bool success = 1;
-  string error_message = 2;
+  // Empty response - success indicated by gRPC status
 }
 
 message ValidateFSMRequest {
@@ -181,4 +180,26 @@ message HealthCheckResponse {
     SERVICE_UNKNOWN = 3;
   }
   ServingStatus status = 1;
+}
+
+// Batch processing messages
+message ExecuteBatchRequest {
+  string fsm_id = 1;
+  repeated string inputs = 2;
+  bool parallel = 3;  // Execute in parallel if true
+}
+
+message ExecuteBatchResponse {
+  message BatchResult {
+    string input = 1;
+    string final_state = 2;
+    bool is_accepted = 3;
+    repeated TransitionRecord transitions = 4;
+    double execution_time_ms = 5;
+    string error = 6;  // Set if this input failed
+  }
+  repeated BatchResult results = 1;
+  double total_execution_time_ms = 2;
+  int32 successful_count = 3;
+  int32 failed_count = 4;
 }

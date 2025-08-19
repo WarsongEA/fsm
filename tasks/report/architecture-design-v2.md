@@ -1,4 +1,4 @@
-# FSM Architecture Design v2 - Simplified & Pragmatic
+# FSM Architecture Design v2 - Simplified & Pragmatic (Fixed)
 
 ## Executive Summary
 
@@ -11,6 +11,52 @@ This document presents a **simplified and pragmatic** architecture for implement
 - Practical DDD where it adds value
 - Single persistence strategy (state-based, not event sourcing)
 
+## Review Fixes Applied
+
+### Blockers Fixed:
+1. ✅ **Added missing getters and validation to FSMDefinition**
+   - Implemented `getStates()`, `getAlphabet()`, `getInitialState()`, `getFinalStates()`, `getTransitions()`
+   - Added comprehensive `validate()` method with proper error checking
+   - Implemented `optimizeTransitions()` for O(1) lookups
+
+2. ✅ **Replaced uniqid() with UUID v7**
+   - Now using `Ramsey\Uuid\Uuid::uuid7()` for proper ID generation
+
+3. ✅ **Removed serialize()/unserialize() and reflection**
+   - FSM state stored as normalized JSON
+   - Added `rehydrate()` static factory method to FSMInstance
+   - Removed all reflection usage in repository
+
+4. ✅ **Fixed gRPC proto - removed success/error_message fields**
+   - All errors now use proper gRPC status codes
+   - Removed success/error_message from all response messages
+
+5. ✅ **Added concurrency control**
+   - Added version field to FSMInstance for optimistic locking
+   - Repository checks version on save, throws ConcurrencyException
+   - Maps conflicts to ABORTED gRPC status
+
+### Improvements Made:
+6. ✅ **Made history optional in fast path**
+   - Added `recordHistory` and `recordTimestamps` flags
+   - History recording disabled by default for performance
+
+7. ✅ **Fixed cache key generation**
+   - Now uses content hash (MD5 of definition) instead of spl_object_hash
+
+8. ✅ **Added history size limit**
+   - Set MAX_HISTORY_SIZE to 10,000 entries
+   - Automatically removes oldest entries when limit reached
+
+9. ✅ **Fixed decimal_value overflow**
+   - Changed to string type in proto
+   - Using GMP extension for arbitrary precision arithmetic
+
+10. ✅ **Clarified ExecuteStream semantics**
+    - Added detailed documentation of chunking behavior
+    - Client can send single chars or chunks
+    - Server streams state changes for each transition
+
 ---
 
 ## 1. Simplified Domain Model
@@ -22,32 +68,119 @@ namespace FSM\Domain;
 
 // The FSM configuration - immutable after creation
 final class FSMDefinition {
+    private array $optimizedTransitions;
+    
     public function __construct(
         private readonly array $states,        // ['S0', 'S1', 'S2']
         private readonly array $alphabet,      // ['0', '1']
         private readonly string $initialState, // 'S0'
         private readonly array $finalStates,   // ['S0', 'S1', 'S2']
-        private readonly array $transitions    // Optimized transition table
+        private readonly array $transitions    // Raw transition array
     ) {
         $this->validate();
         $this->optimizeTransitions();
     }
     
+    // Validation method to ensure FSM is well-formed
+    private function validate(): void {
+        if (empty($this->states)) {
+            throw new \InvalidArgumentException('FSM must have at least one state');
+        }
+        
+        if (empty($this->alphabet)) {
+            throw new \InvalidArgumentException('FSM must have at least one input symbol');
+        }
+        
+        if (!in_array($this->initialState, $this->states)) {
+            throw new \InvalidArgumentException('Initial state must be in states array');
+        }
+        
+        foreach ($this->finalStates as $finalState) {
+            if (!in_array($finalState, $this->states)) {
+                throw new \InvalidArgumentException("Final state '{$finalState}' not in states array");
+            }
+        }
+        
+        // Validate transitions
+        foreach ($this->transitions as $key => $toState) {
+            if (!in_array($toState, $this->states)) {
+                throw new \InvalidArgumentException("Transition target '{$toState}' not in states array");
+            }
+        }
+    }
+    
+    // Optimize transitions into hash map for O(1) lookup
+    private function optimizeTransitions(): void {
+        $this->optimizedTransitions = [];
+        
+        // If transitions are already in optimized format
+        if ($this->isOptimizedFormat($this->transitions)) {
+            $this->optimizedTransitions = $this->transitions;
+            return;
+        }
+        
+        // Convert from array of Transition objects to hash map
+        foreach ($this->transitions as $transition) {
+            if (is_array($transition)) {
+                $key = $transition['from_state'] . ':' . $transition['input'];
+                $this->optimizedTransitions[$key] = $transition['to_state'];
+            }
+        }
+    }
+    
+    private function isOptimizedFormat(array $transitions): bool {
+        if (empty($transitions)) {
+            return true;
+        }
+        
+        $firstKey = array_key_first($transitions);
+        return is_string($firstKey) && str_contains($firstKey, ':');
+    }
+    
     // O(1) transition lookup using hash map
     public function getNextState(string $currentState, string $input): ?string {
         $key = $currentState . ':' . $input;
-        return $this->transitions[$key] ?? null;
+        return $this->optimizedTransitions[$key] ?? null;
+    }
+    
+    // Getter methods
+    public function getStates(): array {
+        return $this->states;
+    }
+    
+    public function getAlphabet(): array {
+        return $this->alphabet;
+    }
+    
+    public function getInitialState(): string {
+        return $this->initialState;
+    }
+    
+    public function getFinalStates(): array {
+        return $this->finalStates;
+    }
+    
+    public function getTransitions(): array {
+        return $this->optimizedTransitions;
+    }
+    
+    public function isFinalState(string $state): bool {
+        return in_array($state, $this->finalStates);
     }
 }
 
-// Runtime FSM instance - mutable state
+// Runtime FSM instance - mutable state with optimistic locking
 final class FSMInstance {
     private string $currentState;
     private array $history = [];
+    private int $version = 0;
+    private const MAX_HISTORY_SIZE = 10000; // Configurable limit
     
     public function __construct(
         private readonly string $id,
-        private readonly FSMDefinition $definition
+        private readonly FSMDefinition $definition,
+        private readonly bool $recordHistory = false,
+        private readonly bool $recordTimestamps = false
     ) {
         $this->currentState = $definition->getInitialState();
     }
@@ -61,14 +194,32 @@ final class FSMInstance {
             );
         }
         
-        $this->history[] = [
-            'from' => $this->currentState,
-            'input' => $input,
-            'to' => $nextState,
-            'timestamp' => microtime(true)
-        ];
+        // Only record history if enabled (performance optimization)
+        if ($this->recordHistory) {
+            $this->addToHistory($this->currentState, $input, $nextState);
+        }
         
         $this->currentState = $nextState;
+        $this->version++; // Increment version for optimistic locking
+    }
+    
+    private function addToHistory(string $from, string $input, string $to): void {
+        // Enforce history size limit
+        if (count($this->history) >= self::MAX_HISTORY_SIZE) {
+            array_shift($this->history); // Remove oldest entry
+        }
+        
+        $record = [
+            'from' => $from,
+            'input' => $input,
+            'to' => $to
+        ];
+        
+        if ($this->recordTimestamps) {
+            $record['timestamp'] = microtime(true);
+        }
+        
+        $this->history[] = $record;
     }
     
     public function getCurrentState(): string {
@@ -77,6 +228,51 @@ final class FSMInstance {
     
     public function getHistory(): array {
         return $this->history;
+    }
+    
+    public function getId(): string {
+        return $this->id;
+    }
+    
+    public function getDefinition(): FSMDefinition {
+        return $this->definition;
+    }
+    
+    public function getVersion(): int {
+        return $this->version;
+    }
+    
+    public function isFinalState(): bool {
+        return $this->definition->isFinalState($this->currentState);
+    }
+    
+    // Factory method to rehydrate from stored data
+    public static function rehydrate(
+        string $id,
+        FSMDefinition $definition,
+        string $currentState,
+        array $history,
+        int $version,
+        bool $recordHistory = false,
+        bool $recordTimestamps = false
+    ): self {
+        $instance = new self($id, $definition, $recordHistory, $recordTimestamps);
+        $instance->currentState = $currentState;
+        $instance->history = $history;
+        $instance->version = $version;
+        return $instance;
+    }
+    
+    // Export state for persistence
+    public function toArray(): array {
+        return [
+            'id' => $this->id,
+            'current_state' => $this->currentState,
+            'history' => $this->history,
+            'version' => $this->version,
+            'record_history' => $this->recordHistory,
+            'record_timestamps' => $this->recordTimestamps
+        ];
     }
 }
 ```
@@ -153,9 +349,10 @@ final class ModuloThreeFSM {
     
     public static function calculate(string $binaryString): int {
         $fsm = new FSMInstance(
-            id: uniqid('mod3_'),
-            definition: self::getDefinition()
-        );
+            id: \Ramsey\Uuid\Uuid::uuid7()->toString(),
+            definition: self::getDefinition(),
+            recordHistory: false,  // No history needed for fast calculation
+            recordTimestamps: false
         
         $engine = new FSMEngine();
         $result = $engine->execute($fsm, $binaryString);
@@ -192,6 +389,7 @@ service FSMService {
   rpc Execute(ExecuteRequest) returns (ExecuteResponse);
   
   // Execute input on an FSM (streaming for real-time updates)
+  // Client streams inputs, server streams state changes
   rpc ExecuteStream(stream ExecuteStreamRequest) returns (stream ExecuteStreamResponse);
   
   // Get FSM state
@@ -201,7 +399,7 @@ service FSMService {
   rpc ModuloThree(ModuloThreeRequest) returns (ModuloThreeResponse);
 }
 
-// Messages
+// Messages - all errors use gRPC status codes, no success/error fields
 message CreateFSMRequest {
   repeated string states = 1;
   repeated string alphabet = 2;
@@ -218,55 +416,62 @@ message Transition {
 
 message CreateFSMResponse {
   string fsm_id = 1;
-  bool success = 2;
-  string error_message = 3;
+  // Success/failure indicated by gRPC status
 }
 
 message ExecuteRequest {
   string fsm_id = 1;
   string input_sequence = 2;
+  bool record_history = 3;  // Optional: enable history recording
 }
 
 message ExecuteResponse {
   string final_state = 1;
   repeated TransitionRecord transitions = 2;
   double execution_time_ms = 3;
+  bool is_final_state = 4;
 }
 
 message TransitionRecord {
   string from_state = 1;
   string input = 2;
   string to_state = 3;
-  double timestamp = 4;
+  double timestamp = 4;  // Optional, only if timestamps enabled
 }
 
 message ExecuteStreamRequest {
   string fsm_id = 1;
-  string input = 2;
+  string input = 2;  // Single input or chunk
 }
 
 message ExecuteStreamResponse {
   string current_state = 1;
   TransitionRecord last_transition = 2;
+  bool is_final_state = 3;
 }
 
 message GetStateRequest {
   string fsm_id = 1;
+  int32 history_limit = 2;  // 0 = all history
 }
 
 message GetStateResponse {
   string current_state = 1;
   repeated TransitionRecord history = 2;
+  bool is_final_state = 3;
 }
 
 message ModuloThreeRequest {
   string binary_input = 1;
+  bool return_transitions = 2;  // Optional transition history
 }
 
 message ModuloThreeResponse {
   int32 result = 1;
   string final_state = 2;
-  int64 decimal_value = 3;
+  string decimal_value = 3;  // String to handle big integers
+  repeated TransitionRecord transitions = 4;
+  double execution_time_ms = 5;
 }
 ```
 
@@ -321,7 +526,72 @@ final class GrpcServer {
 }
 ```
 
-### 3.2 Service Implementation
+### 3.2 ExecuteStream Semantics
+
+The ExecuteStream RPC provides bidirectional streaming for real-time FSM execution:
+
+```php
+// Client streams inputs one at a time or in chunks
+// Server streams back state changes as they occur
+
+public function ExecuteStream(Request $request, Response $response): void {
+    go(function() use ($request, $response) {
+        $fsmId = null;
+        $fsm = null;
+        
+        // Process incoming stream of inputs
+        while ($message = $request->recv()) {
+            if (!$fsmId) {
+                $fsmId = $message->getFsmId();
+                $fsm = $this->repository->find($fsmId);
+                if (!$fsm) {
+                    $response->setStatus(Status::notFound('FSM not found'));
+                    return;
+                }
+            }
+            
+            $input = $message->getInput();
+            
+            // Process input (single character or chunk)
+            foreach (str_split($input) as $char) {
+                try {
+                    $prevState = $fsm->getCurrentState();
+                    $fsm->process($char);
+                    
+                    // Stream state change to client
+                    $response->send([
+                        'current_state' => $fsm->getCurrentState(),
+                        'last_transition' => [
+                            'from_state' => $prevState,
+                            'input' => $char,
+                            'to_state' => $fsm->getCurrentState()
+                        ],
+                        'is_final_state' => $fsm->isFinalState()
+                    ]);
+                } catch (InvalidTransitionException $e) {
+                    $response->setStatus(Status::invalidArgument($e->getMessage()));
+                    return;
+                }
+            }
+        }
+        
+        // Save final state with optimistic locking
+        try {
+            $this->repository->save($fsm, $fsm->getVersion() - count($inputs));
+        } catch (ConcurrencyException $e) {
+            $response->setStatus(Status::aborted('Concurrent modification detected'));
+        }
+    });
+}
+```
+
+**Chunking Behavior:**
+- Client can send single characters for real-time feedback
+- Client can send chunks (e.g., "0101") for batch processing
+- Server streams a response for each state transition
+- Useful for interactive FSM exploration or real-time monitoring
+
+### 3.3 Service Implementation
 
 ```php
 namespace FSM\Infrastructure\Grpc;
@@ -356,22 +626,19 @@ final class FSMServiceImpl implements FSMServiceInterface {
                 );
                 
                 $fsm = new FSMInstance(
-                    id: uniqid('fsm_'),
-                    definition: $definition
+                    id: \Ramsey\Uuid\Uuid::uuid7()->toString(),
+                    definition: $definition,
+                    recordHistory: true,  // Enable history for created FSMs
+                    recordTimestamps: true
                 );
                 
                 $this->repository->save($fsm);
                 
                 $response->setMessage([
-                    'fsm_id' => $fsm->getId(),
-                    'success' => true
+                    'fsm_id' => $fsm->getId()
                 ]);
                 $response->setStatus(Status::ok());
             } catch (\Exception $e) {
-                $response->setMessage([
-                    'success' => false,
-                    'error_message' => $e->getMessage()
-                ]);
                 $response->setStatus(Status::invalid_argument($e->getMessage()));
             }
         });
@@ -396,8 +663,10 @@ final class FSMServiceImpl implements FSMServiceInterface {
                 ]);
                 $response->setStatus(Status::ok());
                 
-                // Save updated state
-                $this->repository->save($fsm);
+                // Save updated state with optimistic locking
+                $this->repository->save($fsm, $fsm->getVersion() - 1);
+            } catch (ConcurrencyException $e) {
+                $response->setStatus(Status::aborted($e->getMessage()));
             } catch (\Exception $e) {
                 $response->setStatus(Status::internal($e->getMessage()));
             }
@@ -415,12 +684,14 @@ final class FSMServiceImpl implements FSMServiceInterface {
                 }
                 
                 $result = ModuloThreeFSM::calculate($binaryInput);
-                $decimalValue = bindec($binaryInput);
+                
+                // Use GMP for large binary numbers to avoid overflow
+                $decimalValue = gmp_strval(gmp_init($binaryInput, 2), 10);
                 
                 $response->setMessage([
                     'result' => $result,
                     'final_state' => 'S' . $result,
-                    'decimal_value' => $decimalValue
+                    'decimal_value' => $decimalValue  // Now a string
                 ]);
                 $response->setStatus(Status::ok());
             } catch (\Exception $e) {
@@ -436,7 +707,7 @@ final class FSMServiceImpl implements FSMServiceInterface {
 ```php
 namespace FSM\Infrastructure\Persistence;
 
-// Simple in-memory repository with optional Redis backing
+// Simple in-memory repository with optional Redis backing and optimistic locking
 final class FSMRepository {
     private array $storage = [];
     private ?Redis $redis = null;
@@ -445,13 +716,22 @@ final class FSMRepository {
         $this->redis = $redis;
     }
     
-    public function save(FSMInstance $fsm): void {
-        $data = [
-            'id' => $fsm->getId(),
-            'definition' => serialize($fsm->getDefinition()),
-            'current_state' => $fsm->getCurrentState(),
-            'history' => $fsm->getHistory()
-        ];
+    public function save(FSMInstance $fsm, ?int $expectedVersion = null): void {
+        // Check for version conflict (optimistic locking)
+        if ($expectedVersion !== null) {
+            $existing = $this->find($fsm->getId());
+            if ($existing && $existing->getVersion() !== $expectedVersion) {
+                throw new ConcurrencyException(
+                    'Version mismatch: expected ' . $expectedVersion . 
+                    ', found ' . $existing->getVersion()
+                );
+            }
+        }
+        
+        // Store FSM state as normalized JSON
+        $data = array_merge($fsm->toArray(), [
+            'definition' => $this->serializeDefinition($fsm->getDefinition())
+        ]);
         
         $this->storage[$fsm->getId()] = $data;
         
@@ -467,7 +747,7 @@ final class FSMRepository {
     public function find(string $id): ?FSMInstance {
         // Try memory first
         if (isset($this->storage[$id])) {
-            return $this->hydrate($this->storage[$id]);
+            return $this->rehydrate($this->storage[$id]);
         }
         
         // Try Redis
@@ -476,33 +756,50 @@ final class FSMRepository {
             if ($data) {
                 $data = json_decode($data, true);
                 $this->storage[$id] = $data; // Cache in memory
-                return $this->hydrate($data);
+                return $this->rehydrate($data);
             }
         }
         
         return null;
     }
     
-    private function hydrate(array $data): FSMInstance {
-        $fsm = new FSMInstance(
+    private function rehydrate(array $data): FSMInstance {
+        $definition = $this->deserializeDefinition($data['definition']);
+        
+        return FSMInstance::rehydrate(
             id: $data['id'],
-            definition: unserialize($data['definition'])
+            definition: $definition,
+            currentState: $data['current_state'],
+            history: $data['history'] ?? [],
+            version: $data['version'] ?? 0,
+            recordHistory: $data['record_history'] ?? false,
+            recordTimestamps: $data['record_timestamps'] ?? false
         );
-        
-        // Restore state and history
-        $reflection = new \ReflectionClass($fsm);
-        
-        $stateProperty = $reflection->getProperty('currentState');
-        $stateProperty->setAccessible(true);
-        $stateProperty->setValue($fsm, $data['current_state']);
-        
-        $historyProperty = $reflection->getProperty('history');
-        $historyProperty->setAccessible(true);
-        $historyProperty->setValue($fsm, $data['history']);
-        
-        return $fsm;
+    }
+    
+    private function serializeDefinition(FSMDefinition $definition): array {
+        return [
+            'states' => $definition->getStates(),
+            'alphabet' => $definition->getAlphabet(),
+            'initial_state' => $definition->getInitialState(),
+            'final_states' => $definition->getFinalStates(),
+            'transitions' => $definition->getTransitions()
+        ];
+    }
+    
+    private function deserializeDefinition(array $data): FSMDefinition {
+        return new FSMDefinition(
+            states: $data['states'],
+            alphabet: $data['alphabet'],
+            initialState: $data['initial_state'],
+            finalStates: $data['final_states'],
+            transitions: $data['transitions']
+        );
     }
 }
+
+// Exception for concurrency conflicts
+final class ConcurrencyException extends \RuntimeException {}
 ```
 
 ---
@@ -558,15 +855,11 @@ final class OptimizedFSMEngine {
             $stateIndex = $nextStateIndex;
         }
         
-        // Update FSM state
-        $reflection = new \ReflectionClass($fsm);
-        $stateProperty = $reflection->getProperty('currentState');
-        $stateProperty->setAccessible(true);
-        $stateProperty->setValue($fsm, $currentState);
-        
-        $historyProperty = $reflection->getProperty('history');
-        $historyProperty->setAccessible(true);
-        $historyProperty->setValue($fsm, array_merge($fsm->getHistory(), $history));
+        // Update FSM state by processing each input
+        // This avoids reflection and maintains encapsulation
+        foreach ($inputs as $input) {
+            $fsm->process($input);
+        }
         
         return new ExecutionResult(
             finalState: $currentState,
@@ -576,13 +869,25 @@ final class OptimizedFSMEngine {
     }
     
     private function getCompiledTable(FSMDefinition $definition): array {
-        $key = spl_object_hash($definition);
+        // Use content hash instead of object hash for cache key
+        $key = $this->getDefinitionHash($definition);
         
         if (!isset(self::$compiledTables[$key])) {
             self::$compiledTables[$key] = $this->compileTable($definition);
         }
         
         return self::$compiledTables[$key];
+    }
+    
+    private function getDefinitionHash(FSMDefinition $definition): string {
+        $data = [
+            'states' => $definition->getStates(),
+            'alphabet' => $definition->getAlphabet(),
+            'initial' => $definition->getInitialState(),
+            'finals' => $definition->getFinalStates(),
+            'transitions' => $definition->getTransitions()
+        ];
+        return md5(json_encode($data));
     }
     
     private function compileTable(FSMDefinition $definition): array {
@@ -729,9 +1034,9 @@ final class PerformanceTest extends TestCase {
         // Should process in under 50ms
         $this->assertLessThan(0.05, $executionTime);
         
-        // Verify correctness
+        // Verify correctness using GMP for large numbers
         $expected = gmp_mod(gmp_init($largeInput, 2), 3);
-        $this->assertEquals($expected, $result);
+        $this->assertEquals(gmp_intval($expected), $result);
     }
 }
 ```
@@ -813,7 +1118,65 @@ $server->start();
 
 ---
 
-## 8. Key Simplifications from v1
+## 8. Concurrency Model
+
+### 8.1 Optimistic Locking
+
+The architecture uses optimistic locking to handle concurrent FSM modifications:
+
+```php
+// Version tracking in FSMInstance
+private int $version = 0;
+
+public function process(string $input): void {
+    // ... perform transition ...
+    $this->version++; // Increment on each state change
+}
+
+// Repository checks version on save
+public function save(FSMInstance $fsm, ?int $expectedVersion = null): void {
+    if ($expectedVersion !== null) {
+        $existing = $this->find($fsm->getId());
+        if ($existing && $existing->getVersion() !== $expectedVersion) {
+            throw new ConcurrencyException('Version mismatch');
+        }
+    }
+    // ... save FSM ...
+}
+```
+
+### 8.2 gRPC Status Mapping
+
+| Condition | gRPC Status | Description |
+|-----------|-------------|-------------|
+| Success | OK | Operation completed successfully |
+| Invalid FSM definition | INVALID_ARGUMENT | Malformed FSM structure |
+| FSM not found | NOT_FOUND | FSM ID doesn't exist |
+| Invalid transition | INVALID_ARGUMENT | No valid transition for input |
+| Concurrent modification | ABORTED | Version conflict detected |
+| Internal error | INTERNAL | Unexpected server error |
+
+### 8.3 Performance Flags
+
+```php
+// Fast path without history (for calculations)
+$fsm = new FSMInstance(
+    id: $id,
+    definition: $definition,
+    recordHistory: false,    // Skip history recording
+    recordTimestamps: false  // Skip timestamp recording
+);
+
+// Full tracking (for debugging/monitoring)
+$fsm = new FSMInstance(
+    id: $id,
+    definition: $definition,
+    recordHistory: true,     // Record all transitions
+    recordTimestamps: true   // Include timestamps
+);
+```
+
+## 9. Key Simplifications from v1
 
 ### What We Removed:
 1. **Event Sourcing**: Using simple state persistence instead
@@ -837,6 +1200,29 @@ $server->start();
 5. **Binary Protocol**: gRPC is more efficient than JSON/REST
 
 ---
+
+## 10. Dependencies
+
+### Required Packages
+
+```json
+{
+    "require": {
+        "php": ">=8.2",
+        "openswoole/core": "^22.0",
+        "openswoole/grpc": "^0.1",
+        "google/protobuf": "^3.0",
+        "ramsey/uuid": "^4.0",
+        "ext-gmp": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0",
+        "giorgiosironi/eris": "^0.14",
+        "vimeo/psalm": "^5.0",
+        "phpstan/phpstan": "^1.0"
+    }
+}
+```
 
 ## Conclusion
 
