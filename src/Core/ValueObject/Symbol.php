@@ -12,8 +12,12 @@ final class Symbol implements Stringable
     public function __construct(
         private readonly string $value
     ) {
-        if (strlen($value) !== 1) {
-            throw new InvalidArgumentException('Symbol must be a single character');
+        if (empty($value)) {
+            throw new InvalidArgumentException('Symbol cannot be empty');
+        }
+        // Allow multi-character symbols for complex automata
+        if (strlen($value) > 10) {
+            throw new InvalidArgumentException('Symbol cannot exceed 10 characters');
         }
     }
     

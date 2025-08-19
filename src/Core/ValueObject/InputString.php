@@ -14,12 +14,22 @@ final class InputString implements Countable, IteratorAggregate
     /** @var Symbol[] */
     private array $symbols;
     
-    public function __construct(string $input)
+    /**
+     * @param string|array<string> $input Either a string or an array of symbol strings
+     */
+    public function __construct(string|array $input)
     {
-        $this->symbols = array_map(
-            fn($char) => new Symbol($char),
-            str_split($input)
-        );
+        if (is_string($input)) {
+            $this->symbols = array_map(
+                fn($char) => new Symbol($char),
+                str_split($input)
+            );
+        } else {
+            $this->symbols = array_map(
+                fn($symbol) => new Symbol($symbol),
+                $input
+            );
+        }
     }
     
     public function symbols(): array

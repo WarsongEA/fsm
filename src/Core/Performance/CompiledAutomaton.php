@@ -18,6 +18,14 @@ final class CompiledAutomaton
     ) {
     }
     
+    public function getStateByIndex(int $index): \FSM\Core\ValueObject\State
+    {
+        if (!isset($this->states[$index])) {
+            throw new \OutOfBoundsException("State index {$index} does not exist");
+        }
+        return new \FSM\Core\ValueObject\State($this->states[$index]);
+    }
+    
     public static function compile(FiniteAutomaton $automaton): self
     {
         $states = $automaton->getStates()->toArray();
