@@ -1,0 +1,67 @@
+{
+    "name": "fsm/library",
+    "description": "Production-ready Finite State Machine library with gRPC and REST support",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.3",
+        "ext-gmp": "*",
+        "ext-json": "*",
+        "ext-pcntl": "*",
+        "openswoole/core": "^22.1",
+        "openswoole/grpc": "^0.2",
+        "google/protobuf": "^3.25",
+        "grpc/grpc": "^1.57",
+        "ramsey/uuid": "^4.7",
+        "predis/predis": "^2.2",
+        "psr/log": "^3.0",
+        "psr/http-message": "^2.0",
+        "psr/http-server-handler": "^1.0",
+        "psr/http-server-middleware": "^1.0",
+        "psr/container": "^2.0",
+        "monolog/monolog": "^3.5"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5",
+        "mockery/mockery": "^1.6",
+        "vimeo/psalm": "^5.18",
+        "phpstan/phpstan": "^1.10",
+        "squizlabs/php_codesniffer": "^3.8",
+        "phpmd/phpmd": "^2.14",
+        "infection/infection": "^0.27",
+        "phpbench/phpbench": "^1.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "FSM\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "test-coverage": "vendor/bin/phpunit --coverage-html coverage",
+        "psalm": "vendor/bin/psalm",
+        "phpstan": "vendor/bin/phpstan analyse",
+        "cs-check": "vendor/bin/phpcs",
+        "cs-fix": "vendor/bin/phpcbf",
+        "mutation": "vendor/bin/infection --threads=4",
+        "benchmark": "vendor/bin/phpbench run --report=default",
+        "quality": [
+            "@cs-check",
+            "@psalm",
+            "@phpstan",
+            "@test"
+        ]
+    },
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "preferred-install": {
+            "*": "dist"
+        }
+    }
+}
