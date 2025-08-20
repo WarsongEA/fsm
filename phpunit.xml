@@ -5,8 +5,7 @@
          colors="true"
          stopOnFailure="false"
          stopOnError="false"
-         stopOnWarning="false"
-         verbose="true">
+         stopOnWarning="false">
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>
@@ -21,12 +20,12 @@
             <directory>tests/Property</directory>
         </testsuite>
     </testsuites>
-    <coverage>
+    <source>
         <include>
             <directory suffix=".php">src</directory>
         </include>
         <exclude>
             <directory>src/Infrastructure/Transport/Grpc/Generated</directory>
         </exclude>
-    </coverage>
+    </source>
 </phpunit>

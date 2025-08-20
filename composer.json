@@ -9,7 +9,7 @@
         "ext-json": "*",
         "ext-pcntl": "*",
         "openswoole/core": "^22.1",
-        "openswoole/grpc": "^0.2",
+        "openswoole/grpc": "^22.1",
         "google/protobuf": "^3.25",
         "grpc/grpc": "^1.57",
         "ramsey/uuid": "^4.7",
@@ -62,6 +62,9 @@
         "optimize-autoloader": true,
         "preferred-install": {
             "*": "dist"
+        },
+        "allow-plugins": {
+            "infection/extension-installer": true
         }
     }
 }

@@ -1,4 +1,4 @@
-FROM php:8.2-cli-alpine
+FROM php:8.3-cli-alpine
 
 # Install base packages and build dependencies
 RUN apk add --no-cache \
@@ -9,12 +9,8 @@ RUN apk add --no-cache \
     openssl-dev \
     curl-dev \
     c-ares-dev \
-    libpng-dev \
-    libjpeg-turbo-dev \
-    freetype-dev \
     gmp \
     gmp-dev \
-    oniguruma-dev \
     autoconf \
     build-base \
     zlib-dev
@@ -24,8 +20,15 @@ RUN pecl install openswoole && \
     docker-php-ext-enable openswoole
 
 # Install other PHP extensions
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg && \
-    docker-php-ext-install gd gmp mbstring pdo pdo_mysql
+RUN docker-php-ext-install gmp pcntl
+
+# Xdebug installation
+ARG INSTALL_XDEBUG=false
+RUN if [ ${INSTALL_XDEBUG} = true ]; then \
+    apk add --no-cache linux-headers; \
+    pecl install xdebug-3.3.2; \
+    docker-php-ext-enable xdebug; \
+fi
 
 # Configure non-root user
 ARG PUID=1000
@@ -49,5 +52,5 @@ USER www-data
 # Expose OpenSwoole default port
 EXPOSE 9501
 
-# Default command to run OpenSwoole server
-CMD ["php", "/var/www/bin/server.php"]
+# Default command to keep container running  
+CMD ["sleep", "infinity"]

@@ -12,7 +12,7 @@ final class Symbol implements Stringable
     public function __construct(
         private readonly string $value
     ) {
-        if (empty($value)) {
+        if ($value === '') {
             throw new InvalidArgumentException('Symbol cannot be empty');
         }
         // Allow multi-character symbols for complex automata

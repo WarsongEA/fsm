@@ -53,7 +53,7 @@ up: ## Start Docker containers
 .PHONY: down
 down: ## Stop Docker containers
 	@echo -e "${BLUE}Stopping Docker containers...${NC}"
-	@$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) down
+	@$(DOCKER_COMPOSE) -f $(DOCKER_COMPOSE_FILE) down --remove-orphans
 	@echo -e "${GREEN}Containers stopped!${NC}"
 
 .PHONY: restart

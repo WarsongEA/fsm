@@ -67,10 +67,26 @@ final class AutomatonBuilder
         return $this;
     }
     
+    private function extractAlphabetFromTransitions(): array
+    {
+        $symbols = [];
+        foreach ($this->transitions as [$from, $input, $to]) {
+            if ($input !== '') {
+                $symbols[$input] = true;
+            }
+        }
+        return array_keys($symbols);
+    }
+    
     public function build(): FiniteAutomaton
     {
         if (empty($this->states)) {
             throw new InvalidAutomatonException('No states defined');
+        }
+        
+        // Auto-build alphabet from transitions if not explicitly set  
+        if (empty($this->alphabet)) {
+            $this->alphabet = $this->extractAlphabetFromTransitions();
         }
         
         if (empty($this->alphabet)) {
