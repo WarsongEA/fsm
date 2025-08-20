@@ -30,7 +30,12 @@ final class FSMExecutor
         
         $automaton = $instance->getAutomaton();
         
-        // Execute using standard automaton
+        // Use compiled automaton for better performance when history is not needed
+        if (!$recordHistory && count($input) > 100) {
+            return $this->executeFast($automaton, $input);
+        }
+        
+        // Execute using standard automaton (needed for history recording)
         $result = $automaton->execute($input);
         
         // Update instance state if stateful execution
@@ -106,13 +111,13 @@ final class FSMExecutor
     
     private function getAutomatonHash(FiniteAutomaton $automaton): string
     {
-        return md5(serialize([
-            $automaton->getStates()->toArray(),
-            $automaton->getAlphabet()->toArray(),
-            (string)$automaton->getInitialState(),
-            $automaton->getFinalStates()->toArray(),
-            $automaton->getTransitionFunction()->toArray()
-        ]));
+        return md5(json_encode([
+            'states' => $automaton->getStates()->toArray(),
+            'alphabet' => $automaton->getAlphabet()->toArray(),
+            'initial_state' => (string)$automaton->getInitialState(),
+            'final_states' => $automaton->getFinalStates()->toArray(),
+            'transitions' => $automaton->getTransitionFunction()->toArray()
+        ], JSON_THROW_ON_ERROR));
     }
 }
 

@@ -9,15 +9,17 @@ use FSM\Core\ValueObject\Alphabet;
 use FSM\Core\ValueObject\State;
 use FSM\Core\ValueObject\TransitionFunction;
 use FSM\Core\ValueObject\InputString;
-use FSM\Core\ValueObject\Symbol;
 use FSM\Core\Result\ComputationResult;
 use FSM\Core\Result\TransitionRecord;
 use FSM\Core\Exception\InvalidAutomatonException;
 use FSM\Core\Exception\InvalidInputException;
 use FSM\Core\Exception\InvalidTransitionException;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 final class FiniteAutomaton
 {
+    private LoggerInterface $logger;
     /**
      * @param StateSet $states (Q) - Finite set of states
      * @param Alphabet $alphabet (Σ) - Finite input alphabet
@@ -30,8 +32,10 @@ final class FiniteAutomaton
         private readonly Alphabet $alphabet,
         private readonly State $initialState,
         private readonly StateSet $finalStates,
-        private readonly TransitionFunction $transitionFunction
+        private readonly TransitionFunction $transitionFunction,
+        ?LoggerInterface $logger = null
     ) {
+        $this->logger = $logger ?? new NullLogger();
         $this->validate();
     }
     
@@ -50,30 +54,63 @@ final class FiniteAutomaton
     
     public function execute(InputString $input): ComputationResult
     {
+        $this->logger->debug('Starting FSM execution', [
+            'input_length' => count($input),
+            'initial_state' => (string)$this->initialState
+        ]);
+        
         $currentState = $this->initialState;
         $transitions = [];
         
-        foreach ($input->symbols() as $symbol) {
-            if (!$this->alphabet->contains($symbol)) {
-                throw new InvalidInputException("Symbol '{$symbol}' not in alphabet");
+        try {
+            foreach ($input->symbols() as $position => $symbol) {
+                if (!$this->alphabet->contains($symbol)) {
+                    $this->logger->error('Invalid input symbol', [
+                        'symbol' => (string)$symbol,
+                        'position' => $position,
+                        'alphabet' => $this->alphabet->toArray()
+                    ]);
+                    throw new InvalidInputException("Symbol '{$symbol}' not in alphabet at position {$position}");
+                }
+                
+                $nextState = $this->transitionFunction->apply($currentState, $symbol);
+                if ($nextState === null) {
+                    $this->logger->error('Invalid transition', [
+                        'from_state' => (string)$currentState,
+                        'symbol' => (string)$symbol,
+                        'position' => $position
+                    ]);
+                    throw new InvalidTransitionException(
+                        "No transition from {$currentState} with input {$symbol} at position {$position}"
+                    );
+                }
+                
+                $transitions[] = new TransitionRecord($currentState, $symbol, $nextState);
+                $currentState = $nextState;
             }
             
-            $nextState = $this->transitionFunction->apply($currentState, $symbol);
-            if ($nextState === null) {
-                throw new InvalidTransitionException(
-                    "No transition from {$currentState} with input {$symbol}"
-                );
-            }
+            $result = new ComputationResult(
+                finalState: $currentState,
+                isAccepted: $this->finalStates->contains($currentState),
+                transitions: $transitions
+            );
             
-            $transitions[] = new TransitionRecord($currentState, $symbol, $nextState);
-            $currentState = $nextState;
+            $this->logger->info('FSM execution completed', [
+                'final_state' => (string)$result->finalState,
+                'is_accepted' => $result->isAccepted,
+                'transition_count' => count($transitions)
+            ]);
+            
+            return $result;
+            
+        } catch (\Exception $e) {
+            $this->logger->error('FSM execution failed', [
+                'error' => $e->getMessage(),
+                'current_state' => (string)$currentState,
+                'transitions_completed' => count($transitions)
+            ]);
+            throw $e;
         }
-        
-        return new ComputationResult(
-            finalState: $currentState,
-            isAccepted: $this->finalStates->contains($currentState),
-            transitions: $transitions
-        );
     }
     
     public function getStates(): StateSet { return $this->states; }
