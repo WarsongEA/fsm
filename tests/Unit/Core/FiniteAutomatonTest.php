@@ -52,16 +52,32 @@ final class FiniteAutomatonTest extends TestCase
     
     public function testPartialTransitionFunctionHandled(): void
     {
-        $automaton = AutomatonBuilder::create()
-            ->withStates('A', 'B')
-            ->withAlphabet('0', '1')
-            ->withInitialState('A')
-            ->withFinalStates('B')
-            ->withTransition('A', '0', 'B')
-            ->build();
+        // Capture any notices during test execution
+        $noticeTriggered = false;
+        $oldErrorHandler = set_error_handler(function ($severity, $message) use (&$noticeTriggered) {
+            if ($severity === E_USER_NOTICE && strpos($message, 'Transition function is partial') !== false) {
+                $noticeTriggered = true;
+                return true; // Suppress the notice
+            }
+            return false; // Let other errors pass through
+        });
         
-        $this->expectException(InvalidTransitionException::class);
-        $automaton->execute(new InputString('1'));
+        try {
+            $automaton = AutomatonBuilder::create()
+                ->withStates('A', 'B')
+                ->withAlphabet('0', '1')
+                ->withInitialState('A')
+                ->withFinalStates('B')
+                ->withTransition('A', '0', 'B')
+                ->build();
+            
+            $this->expectException(InvalidTransitionException::class);
+            $automaton->execute(new InputString('1'));
+        } finally {
+            set_error_handler($oldErrorHandler);
+        }
+        
+        $this->assertTrue($noticeTriggered, 'Expected notice about partial transition function was not triggered');
     }
     
     public function testEmptyInputReturnsInitialState(): void

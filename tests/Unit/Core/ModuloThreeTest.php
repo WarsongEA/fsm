@@ -21,7 +21,7 @@ final class ModuloThreeTest extends TestCase
         $this->assertEquals($decimal % 3, $result);
     }
     
-    public function binaryNumberProvider(): array
+    public static function binaryNumberProvider(): array
     {
         return [
             ['0', 0, 0],
