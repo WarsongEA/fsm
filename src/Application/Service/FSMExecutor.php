@@ -8,9 +8,9 @@ use FSM\Core\Model\FSMInstance;
 use FSM\Core\Model\FiniteAutomaton;
 use FSM\Core\Performance\CompiledAutomaton;
 use FSM\Core\ValueObject\InputString;
-use FSM\Core\Result\ComputationResult;
 use FSM\Core\Exception\InvalidInputException;
 use FSM\Core\Exception\InvalidTransitionException;
+use FSM\Core\ValueObject\State;
 
 /**
  * FSM Executor service
@@ -125,7 +125,7 @@ final class ExecutionResult
      * @param array<\FSM\Core\Result\TransitionRecord> $transitions
      */
     public function __construct(
-        public readonly \FSM\Core\ValueObject\State $finalState,
+        public readonly State $finalState,
         public readonly bool $isAccepted,
         public readonly array $transitions,
         public readonly float $executionTimeMs
