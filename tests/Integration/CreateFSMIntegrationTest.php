@@ -113,9 +113,10 @@ final class CreateFSMIntegrationTest extends TestCase
         ];
         
         foreach ($testCases as $input => [$expectedState, $expectedAccepted]) {
+            $inputString = (string)$input;
             $executeCommand = new ExecuteFSMCommand(
                 fsmId: $fsmId,
-                input: $input,
+                input: $inputString,
                 recordHistory: false
             );
             

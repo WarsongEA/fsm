@@ -32,11 +32,12 @@ final class ExamplesIntegrationTest extends TestCase
         ];
         
         foreach ($testCases as $binary => $expected) {
-            $result = ModuloThreeAutomaton::calculate($binary);
+            $binaryString = (string)$binary;
+            $result = ModuloThreeAutomaton::calculate($binaryString);
             $this->assertEquals(
                 $expected,
                 $result,
-                "Failed for binary {$binary} (decimal " . bindec($binary) . ")"
+                "Failed for binary {$binaryString} (decimal " . bindec($binaryString) . ")"
             );
         }
     }
@@ -93,8 +94,8 @@ final class ExamplesIntegrationTest extends TestCase
         $input = '010101101';
         $positions = EndsWithZeroOneAutomaton::findAllOccurrences($input);
         
-        // "01" occurs at positions 0, 2, 4, 6
-        $expected = [0, 2, 4, 6];
+        // "01" occurs at positions 0, 2, 4, 7
+        $expected = [0, 2, 4, 7];
         
         $this->assertEquals($expected, $positions);
     }

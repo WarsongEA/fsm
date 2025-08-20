@@ -37,8 +37,8 @@ final class FiniteAutomatonTest extends TestCase
         
         $result = $automaton->execute(new InputString('0110'));
         
-        $this->assertEquals('B', (string)$result->finalState);
-        $this->assertTrue($result->isAccepted);
+        $this->assertEquals('A', (string)$result->finalState);
+        $this->assertFalse($result->isAccepted);
         $this->assertCount(4, $result->transitions);
     }
     

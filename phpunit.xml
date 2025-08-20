@@ -5,7 +5,8 @@
          colors="true"
          stopOnFailure="false"
          stopOnError="false"
-         stopOnWarning="false">
+         stopOnWarning="false"
+         cacheDirectory=".phpunit.cache">
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>

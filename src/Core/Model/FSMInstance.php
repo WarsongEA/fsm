@@ -96,15 +96,14 @@ final class FSMInstance
 final class FSMMetadata
 {
     private int $executionCount = 0;
+    public readonly string $createdAt;
     
     public function __construct(
         public readonly ?string $name = null,
         public readonly ?string $description = null,
-        public readonly ?string $createdAt = null
+        ?string $createdAt = null
     ) {
-        if ($this->createdAt === null) {
-            $this->createdAt = date('c');
-        }
+        $this->createdAt = $createdAt ?? date('c');
     }
     
     public function incrementExecutionCount(): void
